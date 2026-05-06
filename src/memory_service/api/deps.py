@@ -25,8 +25,10 @@ async def get_memory_service(
     return MemoryService(session)
 
 
-async def get_recall_service() -> RecallService:
-    return RecallService()
+async def get_recall_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> RecallService:
+    return RecallService(session)
 
 
 async def get_search_service() -> SearchService:

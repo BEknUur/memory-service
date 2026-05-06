@@ -6,9 +6,15 @@ import pytest
 from fastapi import status
 
 #project imports
-from memory_service.api.deps import get_memory_service, get_search_service, get_turn_service
+from memory_service.api.deps import (
+    get_memory_service,
+    get_recall_service,
+    get_search_service,
+    get_turn_service,
+)
 from memory_service.db.migrations import _find_project_root
 from memory_service.main import create_app
+from memory_service.schemas.recall import RecallResponse
 from memory_service.schemas.search import SearchResponse
 
 
@@ -38,6 +44,11 @@ class FakeMemoryService:
 class FakeSearchService:
     async def search(self, _):
         return SearchResponse(results=[])
+
+
+class FakeRecallService:
+    async def recall(self, _):
+        return RecallResponse(context="", citations=[])
 
 
 def test_app_is_created_with_health_route():
@@ -112,6 +123,17 @@ def fake_search_service(app):
     return service
 
 
+@pytest.fixture
+def fake_recall_service(app):
+    service = FakeRecallService()
+
+    async def override():
+        return service
+
+    app.dependency_overrides[get_recall_service] = override
+    return service
+
+
 async def test_post_turns_accepts_contract_payload(client, fake_turn_service):
     response = await client.post(
         "/turns",
@@ -132,7 +154,7 @@ async def test_post_turns_accepts_contract_payload(client, fake_turn_service):
     assert fake_turn_service.created_payload.session_id == "session-1"
 
 
-async def test_recall_stub_returns_empty_context(client):
+async def test_recall_stub_returns_empty_context(client, fake_recall_service):
     response = await client.post(
         "/recall",
         json={

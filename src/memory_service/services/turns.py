@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 #project imports
 from memory_service.db.models import Memory, MemoryEvidence, Turn
 from memory_service.schemas.turns import TurnCreate
+from memory_service.services.embeddings import EmbeddingService
 from memory_service.services.memory_extraction import (
     CombinedMemoryExtractor,
     MemoryCandidate,
@@ -20,9 +21,11 @@ class TurnService:
         self,
         session: AsyncSession,
         extractor: CombinedMemoryExtractor | None = None,
+        embedding_service: EmbeddingService | None = None,
     ) -> None:
         self.session = session
         self.extractor = extractor or CombinedMemoryExtractor()
+        self.embedding_service = embedding_service or EmbeddingService()
 
     async def create_turn(self, payload: TurnCreate) -> UUID:
         turn = Turn(
@@ -74,6 +77,16 @@ class TurnService:
             if existing_memory is not None:
                 existing_memory.active = False
                 existing_memory.superseded_by_id = memory.id
+
+        embedding = await self.embedding_service.embed(
+            self.embedding_service.memory_text(
+                candidate.key,
+                candidate.value,
+                candidate.evidence_quote,
+            )
+        )
+        if embedding is not None:
+            memory.embedding = embedding
 
         self.session.add(
             MemoryEvidence(

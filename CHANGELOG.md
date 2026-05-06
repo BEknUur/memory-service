@@ -76,3 +76,18 @@ behavior.
 
 **Result:** Mocked tests cover valid structured output, missing API key fallback,
 malformed model output fallback, and rule-based plus LLM deduplication.
+
+## v5 - Sprint 5 hybrid recall
+
+**What changed:** Added optional OpenAI embeddings with `text-embedding-3-small`
+and stores vectors on memories when available. Implemented `/recall` using
+pgvector cosine candidates plus Postgres FTS candidates, merged with RRF-style
+ranking and boosted by active status, same-session scope, confidence, and
+confirmation count.
+
+**Why:** The challenge explicitly penalizes vanilla vector search. Recall needs a
+hybrid path that can answer semantic queries and exact keyword/entity queries.
+
+**Result:** Unit coverage verifies embedding storage, cold recall, and keyword
+recall for prompts such as "Where does the user live?" using stored structured
+memories and evidence citations.

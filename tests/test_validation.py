@@ -6,12 +6,15 @@ from uuid import uuid4
 from memory_service.config import Settings
 from memory_service.db.models import Memory, MemoryEvidence, Turn
 from memory_service.db.session import get_session
+from memory_service.schemas.recall import RecallRequest
+from memory_service.services.embeddings import EmbeddingService
 from memory_service.services.memory_extraction import (
     CombinedMemoryExtractor,
     LLMMemoryExtractor,
     MemoryCandidate,
     RuleBasedMemoryExtractor,
 )
+from memory_service.services.recall import RecallService
 from memory_service.services.turns import TurnService
 
 
@@ -58,6 +61,17 @@ class FakeSession:
         self.committed = True
 
 
+class FakeRecallSession:
+    def __init__(self, rows_by_call: list[list[tuple]]) -> None:
+        self.rows_by_call = rows_by_call
+        self.executed = []
+
+    async def execute(self, statement, params=None):
+        self.executed.append(statement)
+        rows = self.rows_by_call.pop(0) if self.rows_by_call else []
+        return FakeExecuteResult(scalar_items=rows)
+
+
 class FakeResponse:
     def __init__(self, output_text: str) -> None:
         self.output_text = output_text
@@ -100,6 +114,18 @@ def no_llm_extractor() -> CombinedMemoryExtractor:
     return CombinedMemoryExtractor(llm_extractor=FakeLLMExtractor([]))
 
 
+def no_embedding_service() -> "FakeEmbeddingService":
+    return FakeEmbeddingService(None)
+
+
+class FakeEmbeddingService(EmbeddingService):
+    def __init__(self, vector: list[float] | None = None) -> None:
+        self.vector = vector
+
+    async def embed(self, text: str) -> list[float] | None:
+        return self.vector
+
+
 def test_settings_read_environment(monkeypatch):
     monkeypatch.setenv("PORT", "9090")
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/test")
@@ -126,7 +152,11 @@ async def test_turn_service_prepares_raw_turn_for_persistence():
     from memory_service.schemas.turns import TurnCreate, TurnMessage
 
     fake_session = FakeSession()
-    service = TurnService(fake_session, extractor=no_llm_extractor())
+    service = TurnService(
+        fake_session,
+        extractor=no_llm_extractor(),
+        embedding_service=no_embedding_service(),
+    )
     payload = TurnCreate(
         session_id="session-1",
         user_id="user-1",
@@ -247,7 +277,11 @@ async def test_turn_service_creates_memories_and_evidence_from_rule_based_extrac
     from memory_service.schemas.turns import TurnCreate, TurnMessage
 
     fake_session = FakeSession()
-    service = TurnService(fake_session, extractor=no_llm_extractor())
+    service = TurnService(
+        fake_session,
+        extractor=no_llm_extractor(),
+        embedding_service=no_embedding_service(),
+    )
     payload = TurnCreate(
         session_id="session-1",
         user_id="user-1",
@@ -271,6 +305,30 @@ async def test_turn_service_creates_memories_and_evidence_from_rule_based_extrac
     assert all(row.quote for row in evidence)
 
 
+async def test_turn_service_stores_embedding_when_available():
+    from memory_service.schemas.turns import TurnCreate, TurnMessage
+
+    fake_session = FakeSession()
+    service = TurnService(
+        fake_session,
+        extractor=no_llm_extractor(),
+        embedding_service=FakeEmbeddingService([0.1] * 1536),
+    )
+    payload = TurnCreate(
+        session_id="session-1",
+        user_id="user-1",
+        messages=[TurnMessage(role="user", content="I work at Notion.")],
+        timestamp=datetime(2025, 3, 16, 10, 30, tzinfo=UTC),
+        metadata={},
+    )
+
+    await service.create_turn(payload)
+
+    memories = [item for item in fake_session.added if isinstance(item, Memory)]
+
+    assert memories[0].embedding == [0.1] * 1536
+
+
 async def test_turn_service_reinforces_existing_same_key_same_value_memory():
     from memory_service.schemas.turns import TurnCreate, TurnMessage
 
@@ -286,7 +344,11 @@ async def test_turn_service_reinforces_existing_same_key_same_value_memory():
         active=True,
     )
     fake_session = FakeSession(existing_memory=existing_memory)
-    service = TurnService(fake_session, extractor=no_llm_extractor())
+    service = TurnService(
+        fake_session,
+        extractor=no_llm_extractor(),
+        embedding_service=no_embedding_service(),
+    )
     payload = TurnCreate(
         session_id="session-1",
         user_id="user-1",
@@ -323,7 +385,11 @@ async def test_turn_service_supersedes_existing_same_key_different_value_memory(
         active=True,
     )
     fake_session = FakeSession(existing_memory=existing_memory)
-    service = TurnService(fake_session, extractor=no_llm_extractor())
+    service = TurnService(
+        fake_session,
+        extractor=no_llm_extractor(),
+        embedding_service=no_embedding_service(),
+    )
     payload = TurnCreate(
         session_id="session-3",
         user_id="user-1",
@@ -352,7 +418,11 @@ async def test_turn_service_uses_advisory_lock_for_memory_slot():
     from memory_service.schemas.turns import TurnCreate, TurnMessage
 
     fake_session = FakeSession()
-    service = TurnService(fake_session, extractor=no_llm_extractor())
+    service = TurnService(
+        fake_session,
+        extractor=no_llm_extractor(),
+        embedding_service=no_embedding_service(),
+    )
     payload = TurnCreate(
         session_id="session-1",
         user_id="user-1",
@@ -364,6 +434,51 @@ async def test_turn_service_uses_advisory_lock_for_memory_slot():
     await service.create_turn(payload)
 
     assert any("pg_advisory_xact_lock" in str(statement) for statement in fake_session.executed)
+
+
+async def test_recall_returns_keyword_memory_context_and_citation():
+    memory_id = uuid4()
+    turn_id = uuid4()
+    memory = Memory(
+        id=memory_id,
+        user_id="user-1",
+        session_id="session-1",
+        type="fact",
+        key="location.current_city",
+        value="Berlin",
+        confidence=0.92,
+        confirmation_count=1,
+        active=True,
+        created_at=datetime(2025, 3, 15, 10, 30, tzinfo=UTC),
+        updated_at=datetime(2025, 3, 15, 10, 30, tzinfo=UTC),
+    )
+    session = FakeRecallSession(rows_by_call=[[(memory, turn_id, "I moved to Berlin", 0.7)]])
+    service = RecallService(session, embedding_service=FakeEmbeddingService(None))
+
+    response = await service.recall(
+        RecallRequest(
+            query="Where does the user live?",
+            session_id="session-1",
+            user_id="user-1",
+            max_tokens=512,
+        )
+    )
+
+    assert "location.current_city: Berlin" in response.context
+    assert response.citations[0].turn_id == str(turn_id)
+    assert response.citations[0].snippet == "I moved to Berlin"
+
+
+async def test_recall_returns_empty_context_when_no_candidates_match():
+    session = FakeRecallSession(rows_by_call=[[], []])
+    service = RecallService(session, embedding_service=FakeEmbeddingService(None))
+
+    response = await service.recall(
+        RecallRequest(query="Unknown topic", session_id="session-1", user_id="user-1")
+    )
+
+    assert response.context == ""
+    assert response.citations == []
 
 
 async def test_post_turns_rejects_malformed_payload(client):
