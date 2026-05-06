@@ -17,6 +17,8 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
     memory_auth_token: str | None = Field(default=None, alias="MEMORY_AUTH_TOKEN")
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_extract_model: str = Field(default="gpt-5-mini", alias="OPENAI_EXTRACT_MODEL")
 
 
 @lru_cache

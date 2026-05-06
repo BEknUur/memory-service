@@ -5,16 +5,13 @@ from uuid import UUID, uuid4
 #third-party imports
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
 #project imports
-from memory_service.db.models import(
-     Memory, 
-     MemoryEvidence,
-       Turn
-)
+from memory_service.db.models import Memory, MemoryEvidence, Turn
 from memory_service.schemas.turns import TurnCreate
 from memory_service.services.memory_extraction import (
+    CombinedMemoryExtractor,
     MemoryCandidate,
-    RuleBasedMemoryExtractor,
 )
 
 
@@ -22,10 +19,10 @@ class TurnService:
     def __init__(
         self,
         session: AsyncSession,
-        extractor: RuleBasedMemoryExtractor | None = None,
+        extractor: CombinedMemoryExtractor | None = None,
     ) -> None:
         self.session = session
-        self.extractor = extractor or RuleBasedMemoryExtractor()
+        self.extractor = extractor or CombinedMemoryExtractor()
 
     async def create_turn(self, payload: TurnCreate) -> UUID:
         turn = Turn(
@@ -40,7 +37,7 @@ class TurnService:
         self.session.add(turn)
         await self.session.flush()
 
-        for candidate in self.extractor.extract(payload.messages):
+        for candidate in await self.extractor.extract(payload.messages):
             await self._apply_candidate(payload, turn, candidate)
 
         await self.session.commit()

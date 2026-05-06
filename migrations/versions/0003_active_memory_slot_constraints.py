@@ -1,13 +1,13 @@
 """active memory slot constraints
 
-Revision ID: 0003_active_memory_slot_constraints
+Revision ID: 0003_active_slots
 Revises: 0002_core_memory_schema
 Create Date: 2026-05-06 00:00:00.000000
 """
 
 from alembic import op
 
-revision = "0003_active_memory_slot_constraints"
+revision = "0003_active_slots"
 down_revision = "0002_core_memory_schema"
 branch_labels = None
 depends_on = None

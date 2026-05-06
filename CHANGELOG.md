@@ -61,3 +61,18 @@ containers apply database migrations automatically at startup.
 latest schema.
 
 **Result:** Startup migration behavior is covered by a unit test.
+
+## v4 - Sprint 4 LLM extraction layer
+
+**What changed:** Added optional OpenAI LLM extraction using the Responses API
+with strict structured output. The LLM extractor returns the same memory
+candidate shape as the rule-based extractor, then the combined extractor merges
+and deduplicates both outputs.
+
+**Why:** Rule-based extraction is a reliable fallback for obvious facts, but the
+challenge rewards extraction of implicit facts, nuanced preferences, and
+opinions. The LLM layer is the quality path while preserving local fallback
+behavior.
+
+**Result:** Mocked tests cover valid structured output, missing API key fallback,
+malformed model output fallback, and rule-based plus LLM deduplication.

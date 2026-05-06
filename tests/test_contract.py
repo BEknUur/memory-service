@@ -7,6 +7,7 @@ from fastapi import status
 
 #project imports
 from memory_service.api.deps import get_memory_service, get_search_service, get_turn_service
+from memory_service.db.migrations import _find_project_root
 from memory_service.main import create_app
 from memory_service.schemas.search import SearchResponse
 
@@ -68,6 +69,14 @@ async def test_lifespan_runs_migrations(monkeypatch):
         pass
 
     assert called is True
+
+
+def test_migration_runner_prefers_current_working_directory(monkeypatch, tmp_path):
+    (tmp_path / "alembic.ini").write_text("[alembic]\nscript_location = migrations\n")
+    (tmp_path / "migrations").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    assert _find_project_root() == tmp_path
 
 
 @pytest.fixture

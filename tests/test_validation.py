@@ -6,7 +6,12 @@ from uuid import uuid4
 from memory_service.config import Settings
 from memory_service.db.models import Memory, MemoryEvidence, Turn
 from memory_service.db.session import get_session
-from memory_service.services.memory_extraction import RuleBasedMemoryExtractor
+from memory_service.services.memory_extraction import (
+    CombinedMemoryExtractor,
+    LLMMemoryExtractor,
+    MemoryCandidate,
+    RuleBasedMemoryExtractor,
+)
 from memory_service.services.turns import TurnService
 
 
@@ -53,6 +58,48 @@ class FakeSession:
         self.committed = True
 
 
+class FakeResponse:
+    def __init__(self, output_text: str) -> None:
+        self.output_text = output_text
+
+
+class FakeResponsesClient:
+    def __init__(self, output_text: str | None = None, error: Exception | None = None) -> None:
+        self.output_text = output_text
+        self.error = error
+
+    async def create(self, **kwargs):
+        self.kwargs = kwargs
+        if self.error:
+            raise self.error
+        return FakeResponse(self.output_text or '{"memories":[]}')
+
+
+class FakeOpenAIClient:
+    def __init__(self, output_text: str | None = None, error: Exception | None = None) -> None:
+        self.responses = FakeResponsesClient(output_text=output_text, error=error)
+
+
+class FakeRuleExtractor:
+    def __init__(self, candidates: list[MemoryCandidate]) -> None:
+        self.candidates = candidates
+
+    def extract(self, messages):
+        return self.candidates
+
+
+class FakeLLMExtractor:
+    def __init__(self, candidates: list[MemoryCandidate]) -> None:
+        self.candidates = candidates
+
+    async def extract(self, messages):
+        return self.candidates
+
+
+def no_llm_extractor() -> CombinedMemoryExtractor:
+    return CombinedMemoryExtractor(llm_extractor=FakeLLMExtractor([]))
+
+
 def test_settings_read_environment(monkeypatch):
     monkeypatch.setenv("PORT", "9090")
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/test")
@@ -79,7 +126,7 @@ async def test_turn_service_prepares_raw_turn_for_persistence():
     from memory_service.schemas.turns import TurnCreate, TurnMessage
 
     fake_session = FakeSession()
-    service = TurnService(fake_session)
+    service = TurnService(fake_session, extractor=no_llm_extractor())
     payload = TurnCreate(
         session_id="session-1",
         user_id="user-1",
@@ -125,11 +172,82 @@ def test_rule_based_extractor_finds_location_employment_pet_and_preferences():
     assert ("preference.communication_style", "concise/direct") in facts
 
 
+async def test_llm_extractor_parses_strict_structured_output():
+    from memory_service.schemas.turns import TurnMessage
+
+    client = FakeOpenAIClient(
+        output_text=(
+            '{"memories":[{"type":"opinion","key":"opinion.typescript",'
+            '"value":"prefers Python for scripts","confidence":0.81,'
+            '"evidence_quote":"I would use Python for scripts"}]}'
+        )
+    )
+    extractor = LLMMemoryExtractor(client=client, model="gpt-test", api_key="test-key")
+
+    candidates = await extractor.extract([TurnMessage(role="user", content="text")])
+
+    assert candidates == [
+        MemoryCandidate(
+            type="opinion",
+            key="opinion.typescript",
+            value="prefers Python for scripts",
+            confidence=0.81,
+            evidence_quote="I would use Python for scripts",
+        )
+    ]
+    assert client.responses.kwargs["model"] == "gpt-test"
+    assert client.responses.kwargs["text"]["format"]["strict"] is True
+
+
+async def test_llm_extractor_returns_empty_without_api_key():
+    from memory_service.schemas.turns import TurnMessage
+
+    extractor = LLMMemoryExtractor(api_key="")
+
+    assert await extractor.extract([TurnMessage(role="user", content="text")]) == []
+
+
+async def test_llm_extractor_returns_empty_on_malformed_output():
+    from memory_service.schemas.turns import TurnMessage
+
+    client = FakeOpenAIClient(output_text='{"memories":[{"type":"fact"}]}')
+    extractor = LLMMemoryExtractor(client=client, model="gpt-test", api_key="test-key")
+
+    assert await extractor.extract([TurnMessage(role="user", content="text")]) == []
+
+
+async def test_combined_extractor_merges_and_dedupes_rule_based_and_llm_candidates():
+    from memory_service.schemas.turns import TurnMessage
+
+    duplicate = MemoryCandidate(
+        type="fact",
+        key="employment.current_company",
+        value="Notion",
+        confidence=0.9,
+        evidence_quote="I work at Notion",
+    )
+    llm_only = MemoryCandidate(
+        type="opinion",
+        key="opinion.typescript",
+        value="prefers Python for scripts",
+        confidence=0.8,
+        evidence_quote="I would use Python for scripts",
+    )
+    extractor = CombinedMemoryExtractor(
+        rule_based_extractor=FakeRuleExtractor([duplicate]),
+        llm_extractor=FakeLLMExtractor([duplicate, llm_only]),
+    )
+
+    candidates = await extractor.extract([TurnMessage(role="user", content="text")])
+
+    assert candidates == [duplicate, llm_only]
+
+
 async def test_turn_service_creates_memories_and_evidence_from_rule_based_extraction():
     from memory_service.schemas.turns import TurnCreate, TurnMessage
 
     fake_session = FakeSession()
-    service = TurnService(fake_session)
+    service = TurnService(fake_session, extractor=no_llm_extractor())
     payload = TurnCreate(
         session_id="session-1",
         user_id="user-1",
@@ -168,7 +286,7 @@ async def test_turn_service_reinforces_existing_same_key_same_value_memory():
         active=True,
     )
     fake_session = FakeSession(existing_memory=existing_memory)
-    service = TurnService(fake_session)
+    service = TurnService(fake_session, extractor=no_llm_extractor())
     payload = TurnCreate(
         session_id="session-1",
         user_id="user-1",
@@ -205,7 +323,7 @@ async def test_turn_service_supersedes_existing_same_key_different_value_memory(
         active=True,
     )
     fake_session = FakeSession(existing_memory=existing_memory)
-    service = TurnService(fake_session)
+    service = TurnService(fake_session, extractor=no_llm_extractor())
     payload = TurnCreate(
         session_id="session-3",
         user_id="user-1",
@@ -234,7 +352,7 @@ async def test_turn_service_uses_advisory_lock_for_memory_slot():
     from memory_service.schemas.turns import TurnCreate, TurnMessage
 
     fake_session = FakeSession()
-    service = TurnService(fake_session)
+    service = TurnService(fake_session, extractor=no_llm_extractor())
     payload = TurnCreate(
         session_id="session-1",
         user_id="user-1",

@@ -5,15 +5,15 @@ from uuid import UUID, uuid4
 #third-party imports
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
-    Boolean, 
+    Boolean,
     DateTime,
-    Float, 
+    Float,
     ForeignKey,
     Index,
     Integer,
-    String, 
-    Text, 
-    func
+    String,
+    Text,
+    func,
 )
 from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import JSONB

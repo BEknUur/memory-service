@@ -4,8 +4,9 @@ Runnable project skeleton for the Higgsfield memory-service challenge.
 
 This setup currently includes the application foundation, the Sprint 1 memory
 schema and HTTP contract surface, Sprint 2 rule-based memory extraction, and
-Sprint 3 fact evolution. Embeddings, LLM extraction, and hybrid recall will be
-added in later iterations.
+Sprint 3 fact evolution. Sprint 4 adds optional OpenAI LLM extraction on top of
+the rule-based fallback. Embeddings and hybrid recall will be added in later
+iterations.
 
 ## Run
 
@@ -48,6 +49,10 @@ migrations/             Alembic migrations
 - `POST /turns` stores the raw turn and extracts basic structured memories.
 - Basic rule-based extraction handles location moves, employment, pets, diet,
   and communication-style preferences.
+- Optional LLM extraction uses OpenAI Responses API structured outputs when
+  `OPENAI_API_KEY` is configured.
+- If no OpenAI key is configured or the LLM returns malformed output, the
+  service continues with rule-based extraction.
 - Every extracted memory gets `memory_evidence`.
 - Repeated same key/value facts reinforce existing memory confidence and
   `confirmation_count`.
@@ -60,7 +65,19 @@ migrations/             Alembic migrations
 - Alembic migrations run automatically during FastAPI startup before the service
   begins serving requests.
 - `/recall` and `/search` intentionally return empty stub responses until the retrieval sprint.
-- Embeddings, LLM extraction, and hybrid recall are deferred.
+- Embeddings and hybrid recall are deferred.
+
+## LLM Configuration
+
+```env
+OPENAI_API_KEY=
+OPENAI_EXTRACT_MODEL=gpt-5-mini
+```
+
+`gpt-5-mini` is the default extraction model because this sprint uses a
+well-defined structured JSON task. The extractor asks for strict schema output
+and converts valid results into the same internal memory candidates as the
+rule-based extractor.
 
 ## Tests
 
