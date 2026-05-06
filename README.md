@@ -2,10 +2,9 @@
 
 Runnable project skeleton for the Higgsfield memory-service challenge.
 
-This setup intentionally includes only the application foundation: FastAPI,
-Postgres with pgvector, environment configuration, Alembic migrations, Docker
-Compose, and a `/health` endpoint. Memory extraction, recall, search, and fact
-evolution will be added in later iterations.
+This setup currently includes the application foundation plus the Sprint 1
+memory schema and HTTP contract surface. Memory extraction, fact evolution,
+embeddings, and hybrid recall will be added in later iterations.
 
 ## Run
 
@@ -30,9 +29,9 @@ Expected healthy response:
 
 ```text
 src/memory_service/
-  api/routes/health.py  FastAPI health endpoint
+  api/routes/          Contract endpoints
   config.py             Environment settings
-  db/                   SQLAlchemy async engine and Alembic metadata
+  db/                   SQLAlchemy async engine and models
   main.py               FastAPI app factory
 tests/                  Setup-level tests
 migrations/             Alembic migrations
@@ -43,15 +42,16 @@ migrations/             Alembic migrations
 - FastAPI app skeleton is present.
 - Postgres is the backing store.
 - pgvector is enabled by the first Alembic migration.
-- Only `GET /health` is implemented for now.
-- Contract endpoints for memory behavior are intentionally deferred.
+- Core tables are defined: `turns`, `memories`, and `memory_evidence`.
+- Contract endpoints exist for turns, recall, search, users, and sessions.
+- `POST /turns` stores the raw turn.
+- `/recall` and `/search` intentionally return empty stub responses until the retrieval sprint.
+- Extraction, reinforcement, supersession, embeddings, and hybrid recall are deferred.
 
 ## Tests
 
 ```bash
 pip install -e ".[dev]"
 pytest
-ruff check . 
+ruff check .
 ```
-## Current situations
-Then i will do so you can use the docker for testing but now it's ok

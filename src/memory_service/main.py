@@ -4,6 +4,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from memory_service.api.routes.health import router as health_router
+from memory_service.api.routes.recall import router as recall_router
+from memory_service.api.routes.search import router as search_router
+from memory_service.api.routes.sessions import router as sessions_router
+from memory_service.api.routes.turns import router as turns_router
+from memory_service.api.routes.users import router as users_router
 from memory_service.db.session import engine
 
 
@@ -17,6 +22,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     app = FastAPI(title="Memory Service", lifespan=lifespan)
     app.include_router(health_router)
+    app.include_router(turns_router)
+    app.include_router(recall_router)
+    app.include_router(search_router)
+    app.include_router(users_router)
+    app.include_router(sessions_router)
     return app
 
 
