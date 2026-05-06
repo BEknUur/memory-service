@@ -1,0 +1,17 @@
+.codex/
+.agents/
+.env
+.venv/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.tox/
+.coverage
+coverage.xml
+htmlcov/
+build/
+dist/
+*.egg-info/
+.cache/
+__pycache__/
