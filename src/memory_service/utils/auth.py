@@ -1,7 +1,10 @@
+#python imports
 from typing import Annotated
 
+#third-party imports
 from fastapi import Header, HTTPException, status
 
+#project imports
 from memory_service.config import get_settings
 
 

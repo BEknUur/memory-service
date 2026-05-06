@@ -1,7 +1,11 @@
+#python imports
 from functools import lru_cache
 
+#third-party imports
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+#project imports
 
 
 class Settings(BaseSettings):

@@ -2,9 +2,9 @@
 
 Runnable project skeleton for the Higgsfield memory-service challenge.
 
-This setup currently includes the application foundation plus the Sprint 1
-memory schema and HTTP contract surface. Memory extraction, fact evolution,
-embeddings, and hybrid recall will be added in later iterations.
+This setup currently includes the application foundation, the Sprint 1 memory
+schema and HTTP contract surface, and Sprint 2 rule-based memory extraction.
+Fact evolution, embeddings, and hybrid recall will be added in later iterations.
 
 ## Run
 
@@ -44,9 +44,14 @@ migrations/             Alembic migrations
 - pgvector is enabled by the first Alembic migration.
 - Core tables are defined: `turns`, `memories`, and `memory_evidence`.
 - Contract endpoints exist for turns, recall, search, users, and sessions.
-- `POST /turns` stores the raw turn.
+- `POST /turns` stores the raw turn and extracts basic structured memories.
+- Basic rule-based extraction handles location moves, employment, pets, diet,
+  and communication-style preferences.
+- Every extracted memory gets `memory_evidence`.
+- Repeated same key/value facts reinforce existing memory confidence and
+  `confirmation_count`.
 - `/recall` and `/search` intentionally return empty stub responses until the retrieval sprint.
-- Extraction, reinforcement, supersession, embeddings, and hybrid recall are deferred.
+- Supersession, advisory locks, embeddings, LLM extraction, and hybrid recall are deferred.
 
 ## Tests
 

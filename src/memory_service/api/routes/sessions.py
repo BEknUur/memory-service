@@ -1,7 +1,10 @@
+#python imports
 from typing import Annotated
 
+#third-party imports
 from fastapi import APIRouter, Depends, Response, status
 
+#project imports
 from memory_service.api.deps import get_turn_service
 from memory_service.services.turns import TurnService
 from memory_service.utils.auth import require_auth

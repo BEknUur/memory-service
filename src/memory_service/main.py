@@ -1,8 +1,11 @@
+#python imports
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+#third-party imports
 from fastapi import FastAPI
 
+#project imports
 from memory_service.api.routes.health import router as health_router
 from memory_service.api.routes.recall import router as recall_router
 from memory_service.api.routes.search import router as search_router

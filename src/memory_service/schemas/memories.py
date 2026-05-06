@@ -1,7 +1,11 @@
+#python imports
 from datetime import datetime
 from typing import Literal
 
+#third-party imports
 from pydantic import BaseModel
+
+#project imports
 
 MemoryType = Literal["fact", "preference", "opinion", "event"]
 

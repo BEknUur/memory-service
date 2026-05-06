@@ -5,6 +5,8 @@ Revises: 0001_enable_pgvector
 Create Date: 2026-05-06 00:00:00.000000
 """
 
+
+#third-party imports
 import sqlalchemy as sa
 from alembic import op
 from pgvector.sqlalchemy import Vector

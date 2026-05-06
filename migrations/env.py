@@ -1,9 +1,12 @@
+#python imports
 from logging.config import fileConfig
 
+#third-party imports
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+#project imports
 from memory_service.config import get_settings
 from memory_service.db import models  # noqa: F401
 from memory_service.db.base import Base

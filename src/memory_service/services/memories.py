@@ -1,8 +1,11 @@
+#python imports
 from uuid import UUID
 
+#third-party imports
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+#project imports
 from memory_service.db.models import Memory, MemoryEvidence
 from memory_service.schemas.memories import MemoryResponse
 

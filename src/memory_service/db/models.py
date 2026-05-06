@@ -1,12 +1,15 @@
+#python imports
 from datetime import datetime
 from uuid import UUID, uuid4
 
+#third-party imports
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+#project imports
 from memory_service.db.base import Base
 
 

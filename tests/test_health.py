@@ -1,4 +1,9 @@
+#python imports
+
+#third-party imports
 from fastapi import status
+
+#project imports
 
 
 async def test_health_returns_ok_when_database_is_reachable(client, monkeypatch):

@@ -5,6 +5,9 @@ Revises:
 Create Date: 2026-05-06 00:00:00.000000
 """
 
+
+
+#third-party imports
 from alembic import op
 
 revision = "0001_enable_pgvector"
