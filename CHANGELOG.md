@@ -36,3 +36,28 @@ facts.
 
 **Result:** Unit coverage verifies extracted memories, evidence creation, and
 same-fact reinforcement. Supersession is intentionally deferred to Sprint 3.
+
+## v3 - Sprint 3 supersession correctness
+
+**What changed:** Added conflicting-fact resolution for same-key memories. New
+facts supersede the old active fact with `supersedes_id` and `superseded_by_id`;
+same key/value still reinforces. Added partial unique indexes for active
+user/key and session/key slots, plus scoped Postgres advisory locks during turn
+ingestion.
+
+**Why:** The service must preserve history while returning only the current fact.
+Database constraints and transaction locks protect the invariant that one slot
+has only one active memory.
+
+**Result:** Unit coverage verifies Stripe -> Notion style supersession,
+reinforcement behavior, and advisory lock usage.
+
+## v3.1 - Startup migrations
+
+**What changed:** Added an Alembic migration runner to the FastAPI lifespan so
+containers apply database migrations automatically at startup.
+
+**Why:** `docker compose up` should be enough to boot a ready service with the
+latest schema.
+
+**Result:** Startup migration behavior is covered by a unit test.

@@ -12,6 +12,7 @@ from memory_service.api.routes.search import router as search_router
 from memory_service.api.routes.sessions import router as sessions_router
 from memory_service.api.routes.turns import router as turns_router
 from memory_service.api.routes.users import router as users_router
+from memory_service.db.migrations import run_migrations
 from memory_service.db.session import engine
 
 
@@ -19,6 +20,7 @@ from memory_service.db.session import engine
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Engine construction is intentionally eager so DB config errors surface on boot.
     _ = engine
+    await run_migrations()
     yield
 
 

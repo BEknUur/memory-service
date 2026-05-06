@@ -1,12 +1,16 @@
 #python imports
+import hashlib
 from uuid import UUID, uuid4
 
 #third-party imports
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-
 #project imports
-from memory_service.db.models import Memory, MemoryEvidence, Turn
+from memory_service.db.models import(
+     Memory, 
+     MemoryEvidence,
+       Turn
+)
 from memory_service.schemas.turns import TurnCreate
 from memory_service.services.memory_extraction import (
     MemoryCandidate,
@@ -48,13 +52,11 @@ class TurnService:
         turn: Turn,
         candidate: MemoryCandidate,
     ) -> None:
-        existing_memory = await self._find_existing_active_memory(payload, candidate)
+        await self._lock_memory_slot(payload, candidate)
+        existing_memory = await self._find_existing_active_memory_for_key(payload, candidate)
 
-        if existing_memory is not None:
-            existing_memory.confirmation_count += 1
-            boosted_confidence = max(existing_memory.confidence, candidate.confidence) + 0.05
-            existing_memory.confidence = round(min(1.0, boosted_confidence), 4)
-            existing_memory.last_confirmed_at = payload.timestamp
+        if existing_memory is not None and existing_memory.value == candidate.value:
+            self._reinforce_memory(existing_memory, candidate, payload)
             memory = existing_memory
         else:
             memory = Memory(
@@ -67,9 +69,14 @@ class TurnService:
                 confidence=candidate.confidence,
                 confirmation_count=1,
                 active=True,
+                supersedes_id=existing_memory.id if existing_memory else None,
                 last_confirmed_at=payload.timestamp,
             )
             self.session.add(memory)
+
+            if existing_memory is not None:
+                existing_memory.active = False
+                existing_memory.superseded_by_id = memory.id
 
         self.session.add(
             MemoryEvidence(
@@ -80,14 +87,44 @@ class TurnService:
             )
         )
 
-    async def _find_existing_active_memory(
+    def _reinforce_memory(
+        self,
+        memory: Memory,
+        candidate: MemoryCandidate,
+        payload: TurnCreate,
+    ) -> None:
+        memory.confirmation_count += 1
+        boosted_confidence = max(memory.confidence, candidate.confidence) + 0.05
+        memory.confidence = round(min(1.0, boosted_confidence), 4)
+        memory.last_confirmed_at = payload.timestamp
+
+    async def _lock_memory_slot(
+        self,
+        payload: TurnCreate,
+        candidate: MemoryCandidate,
+    ) -> None:
+        if payload.user_id is not None:
+            scope = f"user:{payload.user_id}"
+        else:
+            scope = f"session:{payload.session_id}"
+
+        lock_key = self._advisory_lock_key(f"{scope}:{candidate.key}")
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_key)"),
+            {"lock_key": lock_key},
+        )
+
+    def _advisory_lock_key(self, value: str) -> int:
+        digest = hashlib.sha256(value.encode("utf-8")).digest()
+        return int.from_bytes(digest[:8], byteorder="big", signed=True)
+
+    async def _find_existing_active_memory_for_key(
         self,
         payload: TurnCreate,
         candidate: MemoryCandidate,
     ) -> Memory | None:
         statement = select(Memory).where(
             Memory.key == candidate.key,
-            Memory.value == candidate.value,
             Memory.active.is_(True),
         )
 

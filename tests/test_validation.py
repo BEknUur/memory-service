@@ -2,8 +2,6 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-#third-party imports
-
 #project imports
 from memory_service.config import Settings
 from memory_service.db.models import Memory, MemoryEvidence, Turn
@@ -21,11 +19,15 @@ class FakeScalarResult:
 
 
 class FakeExecuteResult:
-    def __init__(self, item=None) -> None:
+    def __init__(self, item=None, scalar_items=None) -> None:
         self.item = item
+        self.scalar_items = scalar_items
 
     def scalars(self) -> FakeScalarResult:
         return FakeScalarResult(self.item)
+
+    def all(self):
+        return self.scalar_items or []
 
 
 class FakeSession:
@@ -38,8 +40,10 @@ class FakeSession:
     def add(self, item) -> None:
         self.added.append(item)
 
-    async def execute(self, statement):
+    async def execute(self, statement, params=None):
         self.executed.append(statement)
+        if "pg_advisory_xact_lock" in str(statement):
+            return FakeExecuteResult()
         return FakeExecuteResult(self.existing_memory)
 
     async def flush(self) -> None:
@@ -184,6 +188,64 @@ async def test_turn_service_reinforces_existing_same_key_same_value_memory():
     assert existing_memory.last_confirmed_at == payload.timestamp
     assert len(evidence) == 1
     assert evidence[0].memory_id == existing_memory.id
+
+
+async def test_turn_service_supersedes_existing_same_key_different_value_memory():
+    from memory_service.schemas.turns import TurnCreate, TurnMessage
+
+    existing_memory = Memory(
+        id=uuid4(),
+        user_id="user-1",
+        session_id="session-1",
+        type="fact",
+        key="employment.current_company",
+        value="Stripe",
+        confidence=0.9,
+        confirmation_count=1,
+        active=True,
+    )
+    fake_session = FakeSession(existing_memory=existing_memory)
+    service = TurnService(fake_session)
+    payload = TurnCreate(
+        session_id="session-3",
+        user_id="user-1",
+        messages=[TurnMessage(role="user", content="I just joined Notion.")],
+        timestamp=datetime(2025, 3, 18, 10, 30, tzinfo=UTC),
+        metadata={},
+    )
+
+    await service.create_turn(payload)
+
+    memories = [item for item in fake_session.added if isinstance(item, Memory)]
+    evidence = [item for item in fake_session.added if isinstance(item, MemoryEvidence)]
+    new_memory = memories[0]
+
+    assert existing_memory.active is False
+    assert existing_memory.superseded_by_id == new_memory.id
+    assert new_memory.active is True
+    assert new_memory.key == "employment.current_company"
+    assert new_memory.value == "Notion"
+    assert new_memory.supersedes_id == existing_memory.id
+    assert len(evidence) == 1
+    assert evidence[0].memory_id == new_memory.id
+
+
+async def test_turn_service_uses_advisory_lock_for_memory_slot():
+    from memory_service.schemas.turns import TurnCreate, TurnMessage
+
+    fake_session = FakeSession()
+    service = TurnService(fake_session)
+    payload = TurnCreate(
+        session_id="session-1",
+        user_id="user-1",
+        messages=[TurnMessage(role="user", content="I work at Notion.")],
+        timestamp=datetime(2025, 3, 16, 10, 30, tzinfo=UTC),
+        metadata={},
+    )
+
+    await service.create_turn(payload)
+
+    assert any("pg_advisory_xact_lock" in str(statement) for statement in fake_session.executed)
 
 
 async def test_post_turns_rejects_malformed_payload(client):

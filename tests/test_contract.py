@@ -54,6 +54,22 @@ def test_app_is_created_with_health_route():
     assert "/sessions/{session_id}" in routes
 
 
+async def test_lifespan_runs_migrations(monkeypatch):
+    called = False
+
+    async def fake_run_migrations() -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr("memory_service.main.run_migrations", fake_run_migrations)
+
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        pass
+
+    assert called is True
+
+
 @pytest.fixture
 def fake_turn_service(app):
     service = FakeTurnService()

@@ -4,7 +4,18 @@ from uuid import UUID, uuid4
 
 #third-party imports
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean, 
+    DateTime,
+    Float, 
+    ForeignKey,
+    Index,
+    Integer,
+    String, 
+    Text, 
+    func
+)
+from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -106,6 +117,20 @@ class MemoryEvidence(Base):
     turn: Mapped[Turn] = relationship(back_populates="evidence")
 
 
+Index(
+    "uq_memories_active_user_key",
+    Memory.user_id,
+    Memory.key,
+    unique=True,
+    postgresql_where=sql_text("active = true AND user_id IS NOT NULL"),
+)
+Index(
+    "uq_memories_active_session_key",
+    Memory.session_id,
+    Memory.key,
+    unique=True,
+    postgresql_where=sql_text("active = true AND user_id IS NULL"),
+)
 Index("ix_memories_user_key_active", Memory.user_id, Memory.key, Memory.active)
 Index("ix_memories_session_key_active", Memory.session_id, Memory.key, Memory.active)
 Index("ix_memories_created_at", Memory.created_at)
