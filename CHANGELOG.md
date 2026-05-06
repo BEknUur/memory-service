@@ -91,3 +91,18 @@ hybrid path that can answer semantic queries and exact keyword/entity queries.
 **Result:** Unit coverage verifies embedding storage, cold recall, and keyword
 recall for prompts such as "Where does the user live?" using stored structured
 memories and evidence citations.
+
+## v6 - Sprint 6 search and quality fixture
+
+**What changed:** Wired `/search` to the same hybrid retrieval layer as
+`/recall`, returning structured ranked results with memory metadata, evidence
+snippets, and turn citations. Added a recall quality fixture covering
+employment, location, pet, preference, and opinion evolution probes.
+
+**Why:** Submission quality needs a reusable retrieval path and a repeatable
+fixture for checking whether memory behavior improves as extraction and recall
+get stronger.
+
+**Result:** Unit coverage verifies structured search results and fixture
+coverage. README now documents architecture, backing store, extraction, recall,
+fact evolution, originality, and current tradeoffs.

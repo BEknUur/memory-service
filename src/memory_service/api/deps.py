@@ -31,5 +31,7 @@ async def get_recall_service(
     return RecallService(session)
 
 
-async def get_search_service() -> SearchService:
-    return SearchService()
+async def get_search_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SearchService:
+    return SearchService(session)

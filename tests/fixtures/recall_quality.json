@@ -1,0 +1,115 @@
+{
+  "conversations": [
+    {
+      "name": "employment evolution",
+      "turns": [
+        {
+          "session_id": "employment-1",
+          "user_id": "fixture-user",
+          "timestamp": "2025-03-10T10:00:00Z",
+          "messages": [
+            {"role": "user", "content": "I work at Stripe."},
+            {"role": "assistant", "content": "Nice, what team are you on?"}
+          ]
+        },
+        {
+          "session_id": "employment-2",
+          "user_id": "fixture-user",
+          "timestamp": "2025-03-18T10:00:00Z",
+          "messages": [
+            {"role": "user", "content": "I just joined Notion."},
+            {"role": "assistant", "content": "Congrats on the new role."}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "location and pet",
+      "turns": [
+        {
+          "session_id": "life-1",
+          "user_id": "fixture-user",
+          "timestamp": "2025-03-15T10:00:00Z",
+          "messages": [
+            {"role": "user", "content": "I just moved to Berlin from NYC. My dog Biscuit is adjusting."},
+            {"role": "assistant", "content": "Berlin has good parks for dogs."}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "preference",
+      "turns": [
+        {
+          "session_id": "pref-1",
+          "user_id": "fixture-user",
+          "timestamp": "2025-03-20T10:00:00Z",
+          "messages": [
+            {"role": "user", "content": "I'm vegetarian and I prefer concise direct answers."},
+            {"role": "assistant", "content": "Got it."}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "opinion evolution",
+      "turns": [
+        {
+          "session_id": "opinion-1",
+          "user_id": "fixture-user",
+          "timestamp": "2025-03-22T10:00:00Z",
+          "messages": [
+            {"role": "user", "content": "I used to dislike remote work."},
+            {"role": "assistant", "content": "That can be hard if collaboration feels slower."}
+          ]
+        },
+        {
+          "session_id": "opinion-2",
+          "user_id": "fixture-user",
+          "timestamp": "2025-03-29T10:00:00Z",
+          "messages": [
+            {"role": "user", "content": "Actually, remote work is great for my focus now."},
+            {"role": "assistant", "content": "Sounds like your setup improved."}
+          ]
+        }
+      ]
+    }
+  ],
+  "probes": [
+    {
+      "name": "employment_evolution",
+      "query": "Where does the user work?",
+      "session_id": "probe-1",
+      "user_id": "fixture-user",
+      "expected": ["Notion"]
+    },
+    {
+      "name": "location_move",
+      "query": "Where does the user live?",
+      "session_id": "probe-2",
+      "user_id": "fixture-user",
+      "expected": ["Berlin"]
+    },
+    {
+      "name": "pet_name",
+      "query": "What is the user's dog named?",
+      "session_id": "probe-3",
+      "user_id": "fixture-user",
+      "expected": ["Biscuit"]
+    },
+    {
+      "name": "preference",
+      "query": "How should I answer this user?",
+      "session_id": "probe-4",
+      "user_id": "fixture-user",
+      "expected": ["concise"]
+    },
+    {
+      "name": "opinion_evolution",
+      "query": "How does the user feel about remote work now?",
+      "session_id": "probe-5",
+      "user_id": "fixture-user",
+      "expected": ["remote work is great"]
+    }
+  ]
+}

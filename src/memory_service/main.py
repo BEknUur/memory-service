@@ -18,7 +18,7 @@ from memory_service.db.session import engine
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    # Engine construction is intentionally eager so DB config errors surface on boot.
+    
     _ = engine
     await run_migrations()
     yield

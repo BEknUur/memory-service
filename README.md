@@ -6,6 +6,8 @@ This setup currently includes the application foundation, the Sprint 1 memory
 schema and HTTP contract surface, Sprint 2 rule-based memory extraction, and
 Sprint 3 fact evolution. Sprint 4 adds optional OpenAI LLM extraction on top of
 the rule-based fallback. Sprint 5 adds memory embeddings and hybrid recall.
+Sprint 6 wires `/search` to the same retrieval layer and adds a recall quality
+fixture.
 
 ## Run
 
@@ -35,6 +37,7 @@ src/memory_service/
   db/                   SQLAlchemy async engine and models
   main.py               FastAPI app factory
 tests/                  Setup-level tests
+tests/fixtures/         Recall quality fixture data
 migrations/             Alembic migrations
 ```
 
@@ -67,7 +70,37 @@ migrations/             Alembic migrations
 - `/recall` uses pgvector cosine search plus Postgres FTS, merges rankings with
   RRF-style scoring, applies confidence/session boosts, and returns prompt-ready
   context with citations.
-- `/search` is still a structured-result stub until the next sprint.
+- `/search` uses the same hybrid retrieval path as `/recall`, but returns
+  structured ranked results instead of prompt-ready prose.
+- `tests/fixtures/recall_quality.json` covers employment, location, pet,
+  preference, and opinion evolution probes.
+
+## Architecture Notes
+
+- `turns` is the raw conversation archive.
+- `memories` stores normalized facts, preferences, opinions, and events.
+- `memory_evidence` stores the quote and turn that justify each memory.
+- Extraction is layered: rule-based extraction handles obvious facts locally;
+  optional LLM extraction adds coverage for nuanced memories.
+- Fact evolution keeps history: a conflicting same-key memory supersedes the old
+  active memory instead of deleting it.
+- Recall is hybrid: pgvector handles semantic similarity, Postgres FTS handles
+  exact words/entities, then RRF-style scoring merges both lists.
+
+## Originality And Tradeoffs
+
+This service intentionally avoids copying another memory provider's API shape or
+pipeline. The core design is evidence-first: every memory points back to source
+quotes, reinforcement raises confidence through repeated evidence, and database
+constraints protect active memory slots.
+
+Current tradeoffs:
+
+- Rule-based extraction is deliberately narrow and deterministic.
+- LLM extraction is optional so local development and tests do not require API
+  access.
+- `/recall` has hybrid retrieval but not LLM reranking yet.
+- Embeddings are created only when `OPENAI_API_KEY` is configured.
 
 ## LLM Configuration
 

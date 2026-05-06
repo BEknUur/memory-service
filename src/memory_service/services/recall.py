@@ -31,7 +31,7 @@ class RecallService:
         self.embedding_service = embedding_service or EmbeddingService()
 
     async def recall(self, request: RecallRequest) -> RecallResponse:
-        candidates = await self._retrieve_candidates(request)
+        candidates = await self.retrieve_candidates(request)
         if not candidates:
             return RecallResponse(context="", citations=[])
 
@@ -50,7 +50,7 @@ class RecallService:
         ]
         return RecallResponse(context=context, citations=citations)
 
-    async def _retrieve_candidates(self, request: RecallRequest) -> list[RecallCandidate]:
+    async def retrieve_candidates(self, request: RecallRequest) -> list[RecallCandidate]:
         vector_candidates = await self._vector_candidates(request)
         keyword_candidates = await self._keyword_candidates(request)
 

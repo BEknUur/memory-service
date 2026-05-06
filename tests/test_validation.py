@@ -7,6 +7,7 @@ from memory_service.config import Settings
 from memory_service.db.models import Memory, MemoryEvidence, Turn
 from memory_service.db.session import get_session
 from memory_service.schemas.recall import RecallRequest
+from memory_service.schemas.search import SearchRequest
 from memory_service.services.embeddings import EmbeddingService
 from memory_service.services.memory_extraction import (
     CombinedMemoryExtractor,
@@ -15,6 +16,7 @@ from memory_service.services.memory_extraction import (
     RuleBasedMemoryExtractor,
 )
 from memory_service.services.recall import RecallService
+from memory_service.services.search import SearchService
 from memory_service.services.turns import TurnService
 
 
@@ -479,6 +481,33 @@ async def test_recall_returns_empty_context_when_no_candidates_match():
 
     assert response.context == ""
     assert response.citations == []
+
+
+async def test_search_returns_structured_results_from_hybrid_retrieval():
+    memory = Memory(
+        id=uuid4(),
+        user_id="user-1",
+        session_id="session-1",
+        type="fact",
+        key="pet.dog.name",
+        value="Biscuit",
+        confidence=0.86,
+        confirmation_count=1,
+        active=True,
+        created_at=datetime(2025, 3, 15, 10, 30, tzinfo=UTC),
+        updated_at=datetime(2025, 3, 15, 10, 30, tzinfo=UTC),
+    )
+    turn_id = uuid4()
+    session = FakeRecallSession(rows_by_call=[[(memory, turn_id, "my dog Biscuit", 0.8)]])
+    service = SearchService(session, embedding_service=FakeEmbeddingService(None))
+
+    response = await service.search(
+        SearchRequest(query="dog name", session_id="session-1", user_id="user-1", limit=5)
+    )
+
+    assert response.results[0].content == "pet.dog.name: Biscuit"
+    assert response.results[0].session_id == "session-1"
+    assert response.results[0].metadata["turn_id"] == str(turn_id)
 
 
 async def test_post_turns_rejects_malformed_payload(client):
