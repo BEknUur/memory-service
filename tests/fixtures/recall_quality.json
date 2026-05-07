@@ -38,6 +38,29 @@
       ]
     },
     {
+      "name": "same user across sessions",
+      "turns": [
+        {
+          "session_id": "travel-1",
+          "user_id": "fixture-user",
+          "timestamp": "2025-03-16T10:00:00Z",
+          "messages": [
+            {"role": "user", "content": "I'm looking for dog-friendly cafes in Berlin for Biscuit."},
+            {"role": "assistant", "content": "I can look for places that allow dogs."}
+          ]
+        },
+        {
+          "session_id": "travel-2",
+          "user_id": "fixture-user",
+          "timestamp": "2025-03-17T10:00:00Z",
+          "messages": [
+            {"role": "user", "content": "Please remember I prefer walkable neighborhoods."},
+            {"role": "assistant", "content": "Got it."}
+          ]
+        }
+      ]
+    },
+    {
       "name": "preference",
       "turns": [
         {
@@ -47,6 +70,43 @@
           "messages": [
             {"role": "user", "content": "I'm vegetarian and I prefer concise direct answers."},
             {"role": "assistant", "content": "Got it."}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "diet and communication",
+      "turns": [
+        {
+          "session_id": "diet-1",
+          "user_id": "fixture-user",
+          "timestamp": "2025-03-21T10:00:00Z",
+          "messages": [
+            {"role": "user", "content": "I'm vegetarian, and for planning I prefer short bullet points."},
+            {"role": "assistant", "content": "Understood."}
+          ]
+        },
+        {
+          "session_id": "diet-2",
+          "user_id": "fixture-user",
+          "timestamp": "2025-03-21T12:00:00Z",
+          "messages": [
+            {"role": "user", "content": "Actually I am vegan now, not vegetarian."},
+            {"role": "assistant", "content": "I will remember vegan."}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "session isolated user",
+      "turns": [
+        {
+          "session_id": "other-user-1",
+          "user_id": "other-fixture-user",
+          "timestamp": "2025-03-21T15:00:00Z",
+          "messages": [
+            {"role": "user", "content": "I work at Linear and live in Lisbon."},
+            {"role": "assistant", "content": "Thanks."}
           ]
         }
       ]
@@ -84,11 +144,25 @@
       "expected": ["Notion"]
     },
     {
+      "name": "employment_history",
+      "query": "Where did the user work before Notion?",
+      "session_id": "probe-1b",
+      "user_id": "fixture-user",
+      "expected": ["Stripe"]
+    },
+    {
       "name": "location_move",
       "query": "Where does the user live?",
       "session_id": "probe-2",
       "user_id": "fixture-user",
       "expected": ["Berlin"]
+    },
+    {
+      "name": "previous_city",
+      "query": "Where did the user move from?",
+      "session_id": "probe-2b",
+      "user_id": "fixture-user",
+      "expected": ["NYC"]
     },
     {
       "name": "pet_name",
@@ -98,6 +172,13 @@
       "expected": ["Biscuit"]
     },
     {
+      "name": "dog_location_multi_hop",
+      "query": "Where should I search for dog-friendly cafes for Biscuit?",
+      "session_id": "probe-3b",
+      "user_id": "fixture-user",
+      "expected": ["Berlin", "Biscuit"]
+    },
+    {
       "name": "preference",
       "query": "How should I answer this user?",
       "session_id": "probe-4",
@@ -105,11 +186,53 @@
       "expected": ["concise"]
     },
     {
+      "name": "diet_evolution",
+      "query": "What dietary preference should I use now?",
+      "session_id": "probe-4b",
+      "user_id": "fixture-user",
+      "expected": ["vegan"]
+    },
+    {
+      "name": "diet_history",
+      "query": "What dietary preference changed?",
+      "session_id": "probe-4c",
+      "user_id": "fixture-user",
+      "expected": ["vegetarian", "vegan"]
+    },
+    {
+      "name": "planning_style",
+      "query": "How should I format planning advice?",
+      "session_id": "probe-4d",
+      "user_id": "fixture-user",
+      "expected": ["short bullet points"]
+    },
+    {
+      "name": "walkable_preference",
+      "query": "What neighborhood style does the user prefer?",
+      "session_id": "probe-4e",
+      "user_id": "fixture-user",
+      "expected": ["walkable"]
+    },
+    {
       "name": "opinion_evolution",
       "query": "How does the user feel about remote work now?",
       "session_id": "probe-5",
       "user_id": "fixture-user",
       "expected": ["remote work is great"]
+    },
+    {
+      "name": "cross_user_isolation",
+      "query": "Does fixture-user work at Linear?",
+      "session_id": "probe-6",
+      "user_id": "fixture-user",
+      "expected_absent": ["Linear", "Lisbon"]
+    },
+    {
+      "name": "other_user_memory",
+      "query": "Where does the other user live?",
+      "session_id": "probe-7",
+      "user_id": "other-fixture-user",
+      "expected": ["Lisbon"]
     }
   ]
 }

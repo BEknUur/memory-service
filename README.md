@@ -66,6 +66,7 @@ src/memory_service/
 tests/                  Setup-level tests
 tests/fixtures/         Recall quality fixture data
 scripts/smoke.sh        End-to-end Docker smoke flow
+scripts/test.sh         Live endpoint test runner for a running Docker stack
 migrations/             Alembic migrations
 ```
 
@@ -400,8 +401,30 @@ Expected:
 
 ## Tests
 
-Will override this to more useful things
+Start Docker first:
 
+```bash
+docker compose up --build
 ```
 
+Then run the live endpoint test script:
+
+```bash
+bash scripts/test.sh
 ```
+
+This script does not start Docker. It assumes the API is already running and
+then tests the real HTTP endpoints:
+
+- `GET /health`
+- `POST /turns`
+- `GET /users/{user_id}/memories`
+- `POST /recall`
+- `POST /search`
+- `DELETE /sessions/{session_id}`
+- `DELETE /users/{user_id}`
+- invalid payload checks that must return `422`
+- cleanup checks that memories are removed
+
+
+Thank you ! For seeing this work.GL and HF in eveything!
