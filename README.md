@@ -1,14 +1,16 @@
 # Memory Service
 
-Runnable project skeleton for the Higgsfield memory-service challenge.
+This is a service which handles the memeory for ai agents 
+like injests conversations,stores raw data,also extracts 
+structured memeories and so on
 
-This setup currently includes the application foundation, the Sprint 1 memory
-schema and HTTP contract surface, Sprint 2 rule-based memory extraction, and
-Sprint 3 fact evolution. Sprint 4 adds optional OpenAI LLM extraction on top of
-the rule-based fallback. Sprint 5 adds memory embeddings and hybrid recall.
-Sprint 6 wires `/search` to the same retrieval layer and adds a recall quality
-fixture. The latest iteration adds canonical memory slots and direct superseded
-history in recall context.
+Actually there are main six sprints where I did the core work. In the first
+sprint I focused on the app foundation, schema, and HTTP contract surface.
+Sprint 2 adds rule-based memory extraction, and Sprint 3 adds fact evolution.
+Sprint 4 adds optional OpenAI LLM extraction on top of the rule-based fallback.
+Sprint 5 adds memory embeddings and hybrid recall. Sprint 6 wires `/search` to
+the same retrieval layer and adds a recall quality fixture. The latest iteration
+adds canonical memory slots and direct superseded history in recall context.
 
 ## Run
 
@@ -26,7 +28,25 @@ curl http://localhost:8080/health
 Expected healthy response:
 
 ```json
-{"status":"ok","database":"ok"}
+{ "status": "ok", "database": "ok" }
+```
+
+Run the full smoke flow:
+
+```bash
+bash scripts/smoke.sh
+```
+
+The smoke script covers health, turn ingestion, user memory inspection, recall,
+search, Stripe -> Notion supersession, and cleanup. It uses a unique smoke user
+by default.
+
+Optional overrides:
+
+```bash
+BASE_URL=http://localhost:8080 bash scripts/smoke.sh
+MEMORY_AUTH_TOKEN=secret bash scripts/smoke.sh
+USER_ID=my-test-user bash scripts/smoke.sh
 ```
 
 Open Swagger UI:
@@ -45,6 +65,7 @@ src/memory_service/
   main.py               FastAPI app factory
 tests/                  Setup-level tests
 tests/fixtures/         Recall quality fixture data
+scripts/smoke.sh        End-to-end Docker smoke flow
 migrations/             Alembic migrations
 ```
 
@@ -379,15 +400,8 @@ Expected:
 
 ## Tests
 
-```bash
-pip install -e ".[dev]"
-pytest
-ruff check .
-alembic upgrade head --sql
+Will override this to more useful things
+
 ```
 
-Docker persistence coverage is opt-in because it requires Docker daemon access:
-
-```bash
-RUN_DOCKER_TESTS=1 pytest tests/integration -q
 ```
