@@ -54,6 +54,7 @@ class Memory(Base):
     session_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     type: Mapped[str] = mapped_column(String(32), nullable=False)
     key: Mapped[str] = mapped_column(String(255), nullable=False)
+    slot: Mapped[str] = mapped_column(String(255), nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     confirmation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -120,17 +121,17 @@ class MemoryEvidence(Base):
 Index(
     "uq_memories_active_user_key",
     Memory.user_id,
-    Memory.key,
+    Memory.slot,
     unique=True,
     postgresql_where=sql_text("active = true AND user_id IS NOT NULL"),
 )
 Index(
     "uq_memories_active_session_key",
     Memory.session_id,
-    Memory.key,
+    Memory.slot,
     unique=True,
     postgresql_where=sql_text("active = true AND user_id IS NULL"),
 )
-Index("ix_memories_user_key_active", Memory.user_id, Memory.key, Memory.active)
-Index("ix_memories_session_key_active", Memory.session_id, Memory.key, Memory.active)
+Index("ix_memories_user_slot_active", Memory.user_id, Memory.slot, Memory.active)
+Index("ix_memories_session_slot_active", Memory.session_id, Memory.slot, Memory.active)
 Index("ix_memories_created_at", Memory.created_at)

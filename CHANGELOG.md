@@ -54,13 +54,13 @@ reinforcement behavior, and advisory lock usage.
 
 ## v3.1 - Startup migrations
 
-**What changed:** Added an Alembic migration runner to the FastAPI lifespan so
-containers apply database migrations automatically at startup.
+**What changed:** Added automatic Alembic migrations during container startup.
+This now runs through Docker CMD before uvicorn starts.
 
 **Why:** `docker compose up` should be enough to boot a ready service with the
 latest schema.
 
-**Result:** Startup migration behavior is covered by a unit test.
+**Result:** Startup migration behavior is covered by a Dockerfile contract test.
 
 ## v4 - Sprint 4 LLM extraction layer
 
@@ -106,3 +106,40 @@ get stronger.
 **Result:** Unit coverage verifies structured search results and fixture
 coverage. README now documents architecture, backing store, extraction, recall,
 fact evolution, originality, and current tradeoffs.
+
+## v7 - Docker startup correctness
+
+**What changed:** Made Dockerfile startup the migration source of truth:
+`alembic upgrade head && uvicorn ...`. Removed the stale lifespan migration
+expectation from tests.
+
+**Why:** Running migrations in FastAPI lifespan caused confusing startup
+behavior while Docker already had the correct pre-uvicorn migration boundary.
+
+**Result:** Startup coverage now checks the real Docker command. Fast suite is
+46 passing tests plus 1 opt-in Docker persistence test.
+
+## v8 - Canonical memory slots
+
+**What changed:** Added internal `slot` storage for canonical conflict keys.
+Equivalent extracted keys such as `employment.company`, `job.company`, and
+`employment.current_company` now resolve to one active slot.
+
+**Why:** Raw extracted keys are too brittle. Without a canonical slot, LLM and
+rule-based extraction can create duplicate current facts for the same concept.
+
+**Result:** Slot tests cover alias normalization, advisory locks, partial unique
+indexes, reinforcement, and supersession. Fixture category coverage is now 5/5:
+employment, location, pet, preference, and opinion evolution.
+
+## v9 - Recall history context
+
+**What changed:** Recall now attaches the direct superseded fact for active
+memories and formats context with previous values, e.g. `Notion (previously
+Stripe)`.
+
+**Why:** Returning only the current fact hides useful evolution. The agent should
+know both the current answer and the immediately previous state when relevant.
+
+**Result:** Employment evolution coverage now asserts 1/1 current-plus-previous
+context behavior, while inactive memories still do not appear as current facts.

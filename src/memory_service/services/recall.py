@@ -35,6 +35,7 @@ class RecallService:
         if not candidates:
             return RecallResponse(context="", citations=[])
 
+        await self._attach_previous_memories(candidates)
         context = self._build_context(candidates, request.max_tokens)
         if not context:
             return RecallResponse(context="", citations=[])
@@ -97,6 +98,7 @@ class RecallService:
         search_text = func.concat_ws(
             " ",
             func.replace(Memory.key, ".", " "),
+            func.replace(Memory.slot, ".", " "),
             Memory.value,
             func.coalesce(MemoryEvidence.quote, ""),
         )
@@ -163,12 +165,13 @@ class RecallService:
     def _build_context(self, candidates: list[RecallCandidate], max_tokens: int) -> str:
         budget_chars = max(120, max_tokens * 4)
         lines = ["## Known facts about this user"]
-        used_keys: set[str] = set()
+        used_slots: set[str] = set()
 
         for candidate in candidates:
-            if candidate.memory.key in used_keys:
+            slot = getattr(candidate.memory, "slot", None) or candidate.memory.key
+            if slot in used_slots:
                 continue
-            used_keys.add(candidate.memory.key)
+            used_slots.add(slot)
             lines.append(f"- {self._format_memory(candidate.memory)}")
             if len("\n".join(lines)) >= budget_chars:
                 break
@@ -176,8 +179,32 @@ class RecallService:
         context = "\n".join(lines)
         return context[:budget_chars].rstrip()
 
+    async def _attach_previous_memories(self, candidates: list[RecallCandidate]) -> None:
+        previous_ids = {
+            candidate.memory.supersedes_id
+            for candidate in candidates
+            if candidate.memory.supersedes_id is not None
+        }
+        if not previous_ids:
+            return
+
+        result = await self.session.execute(select(Memory).where(Memory.id.in_(previous_ids)))
+        rows = result.scalars().all()
+        previous_by_id = {memory.id: memory for memory in rows}
+        for candidate in candidates:
+            previous = previous_by_id.get(candidate.memory.supersedes_id)
+            if previous is not None:
+                candidate.memory.previous_memory = previous
+
     def _format_memory(self, memory: Memory) -> str:
         updated = self._format_date(memory.updated_at or memory.created_at)
+        previous = getattr(memory, "previous_memory", None)
+        if previous is not None:
+            return (
+                f"{memory.key}: {memory.value} "
+                f"(previously {previous.value}; confidence {memory.confidence:.2f}; "
+                f"updated {updated})"
+            )
         return (
             f"{memory.key}: {memory.value} "
             f"(confidence {memory.confidence:.2f}; updated {updated})"

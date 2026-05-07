@@ -1,4 +1,6 @@
 #python imports
+from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 #third-party imports
@@ -12,7 +14,6 @@ from memory_service.api.deps import (
     get_search_service,
     get_turn_service,
 )
-from memory_service.db.migrations import _find_project_root
 from memory_service.main import create_app
 from memory_service.schemas.recall import RecallResponse
 from memory_service.schemas.search import SearchResponse
@@ -51,6 +52,29 @@ class FakeRecallService:
         return RecallResponse(context="", citations=[])
 
 
+class FakeUsefulSearchService:
+    async def search(self, _):
+        return SearchResponse(
+            results=[
+                {
+                    "content": "pet.dog.name: Biscuit",
+                    "score": 0.97,
+                    "session_id": "session-1",
+                    "timestamp": datetime(2025, 3, 15, 10, 30, tzinfo=UTC),
+                    "metadata": {"key": "pet.dog.name"},
+                }
+            ]
+        )
+
+
+class FakeUsefulRecallService:
+    async def recall(self, _):
+        return RecallResponse(
+            context="## Known facts about this user\n- location.current_city: Berlin",
+            citations=[{"turn_id": str(uuid4()), "score": 0.9, "snippet": "I moved to Berlin"}],
+        )
+
+
 def test_app_is_created_with_health_route():
     app = create_app()
 
@@ -66,28 +90,12 @@ def test_app_is_created_with_health_route():
     assert "/sessions/{session_id}" in routes
 
 
-async def test_lifespan_runs_migrations(monkeypatch):
-    called = False
+def test_dockerfile_runs_migrations_on_startup():
+    dockerfile = Path(__file__).parent.parent / "Dockerfile"
+    content = dockerfile.read_text()
 
-    async def fake_run_migrations() -> None:
-        nonlocal called
-        called = True
-
-    monkeypatch.setattr("memory_service.main.run_migrations", fake_run_migrations)
-
-    app = create_app()
-    async with app.router.lifespan_context(app):
-        pass
-
-    assert called is True
-
-
-def test_migration_runner_prefers_current_working_directory(monkeypatch, tmp_path):
-    (tmp_path / "alembic.ini").write_text("[alembic]\nscript_location = migrations\n")
-    (tmp_path / "migrations").mkdir()
-    monkeypatch.chdir(tmp_path)
-
-    assert _find_project_root() == tmp_path
+    assert "alembic upgrade head" in content
+    assert "uvicorn memory_service.main:app" in content
 
 
 @pytest.fixture
@@ -177,6 +185,60 @@ async def test_search_stub_returns_empty_results(client, fake_search_service):
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {"results": []}
+
+
+async def test_http_smoke_write_turn_then_recall_context(client, app, fake_turn_service):
+    recall_service = FakeUsefulRecallService()
+
+    async def override_recall():
+        return recall_service
+
+    app.dependency_overrides[get_recall_service] = override_recall
+
+    write_response = await client.post(
+        "/turns",
+        json={
+            "session_id": "session-1",
+            "user_id": "user-1",
+            "messages": [{"role": "user", "content": "I just moved to Berlin from NYC."}],
+            "timestamp": "2025-03-15T10:30:00Z",
+            "metadata": {},
+        },
+    )
+    recall_response = await client.post(
+        "/recall",
+        json={
+            "query": "Where does the user live?",
+            "session_id": "session-2",
+            "user_id": "user-1",
+            "max_tokens": 512,
+        },
+    )
+
+    assert write_response.status_code == status.HTTP_201_CREATED
+    assert fake_turn_service.created_payload.user_id == "user-1"
+    assert recall_response.status_code == status.HTTP_200_OK
+    assert "Berlin" in recall_response.json()["context"]
+
+
+async def test_http_smoke_search_returns_structured_result(client, app):
+    search_service = FakeUsefulSearchService()
+
+    async def override_search():
+        return search_service
+
+    app.dependency_overrides[get_search_service] = override_search
+
+    response = await client.post(
+        "/search",
+        json={"query": "dog Biscuit", "session_id": "session-1", "user_id": "user-1", "limit": 5},
+    )
+
+    payload = response.json()
+
+    assert response.status_code == status.HTTP_200_OK
+    assert payload["results"][0]["content"] == "pet.dog.name: Biscuit"
+    assert payload["results"][0]["metadata"]["key"] == "pet.dog.name"
 
 
 async def test_user_memories_returns_structured_list(client, fake_memory_service):

@@ -14,6 +14,7 @@ from memory_service.services.memory_extraction import (
     CombinedMemoryExtractor,
     MemoryCandidate,
 )
+from memory_service.services.memory_slots import canonical_slot
 
 
 class TurnService:
@@ -53,7 +54,8 @@ class TurnService:
         candidate: MemoryCandidate,
     ) -> None:
         await self._lock_memory_slot(payload, candidate)
-        existing_memory = await self._find_existing_active_memory_for_key(payload, candidate)
+        slot = canonical_slot(candidate.key)
+        existing_memory = await self._find_existing_active_memory_for_slot(payload, slot)
 
         if existing_memory is not None and existing_memory.value == candidate.value:
             self._reinforce_memory(existing_memory, candidate, payload)
@@ -65,6 +67,7 @@ class TurnService:
                 session_id=payload.session_id,
                 type=candidate.type,
                 key=candidate.key,
+                slot=slot,
                 value=candidate.value,
                 confidence=candidate.confidence,
                 confirmation_count=1,
@@ -118,7 +121,7 @@ class TurnService:
         else:
             scope = f"session:{payload.session_id}"
 
-        lock_key = self._advisory_lock_key(f"{scope}:{candidate.key}")
+        lock_key = self._advisory_lock_key(f"{scope}:{canonical_slot(candidate.key)}")
         await self.session.execute(
             text("SELECT pg_advisory_xact_lock(:lock_key)"),
             {"lock_key": lock_key},
@@ -128,13 +131,13 @@ class TurnService:
         digest = hashlib.sha256(value.encode("utf-8")).digest()
         return int.from_bytes(digest[:8], byteorder="big", signed=True)
 
-    async def _find_existing_active_memory_for_key(
+    async def _find_existing_active_memory_for_slot(
         self,
         payload: TurnCreate,
-        candidate: MemoryCandidate,
+        slot: str,
     ) -> Memory | None:
         statement = select(Memory).where(
-            Memory.key == candidate.key,
+            Memory.slot == slot,
             Memory.active.is_(True),
         )
 

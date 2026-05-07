@@ -7,7 +7,8 @@ schema and HTTP contract surface, Sprint 2 rule-based memory extraction, and
 Sprint 3 fact evolution. Sprint 4 adds optional OpenAI LLM extraction on top of
 the rule-based fallback. Sprint 5 adds memory embeddings and hybrid recall.
 Sprint 6 wires `/search` to the same retrieval layer and adds a recall quality
-fixture.
+fixture. The latest iteration adds canonical memory slots and direct superseded
+history in recall context.
 
 ## Run
 
@@ -60,16 +61,18 @@ migrations/             Alembic migrations
   `confirmation_count`.
 - Conflicting same-key facts supersede the old active memory instead of creating
   two current facts.
-- Partial unique indexes enforce one active memory per user/key or session/key
-  slot.
+- Canonical memory `slot` values normalize equivalent keys such as
+  `employment.company` and `employment.current_company`.
+- Partial unique indexes enforce one active memory per user/slot or session/slot.
 - `POST /turns` takes a scoped Postgres advisory lock per memory slot before
   resolving facts.
-- Alembic migrations run automatically during FastAPI startup before the service
-  begins serving requests.
+- Alembic migrations run automatically from the Docker CMD before uvicorn starts.
 - New or reinforced memories get embeddings when `OPENAI_API_KEY` is configured.
 - `/recall` uses pgvector cosine search plus Postgres FTS, merges rankings with
   RRF-style scoring, applies confidence/session boosts, and returns prompt-ready
   context with citations.
+- `/recall` includes direct superseded history for active facts, e.g.
+  `employment.current_company: Notion (previously Stripe; ...)`.
 - `/search` uses the same hybrid retrieval path as `/recall`, but returns
   structured ranked results instead of prompt-ready prose.
 - `tests/fixtures/recall_quality.json` covers employment, location, pet,
@@ -84,6 +87,9 @@ migrations/             Alembic migrations
   optional LLM extraction adds coverage for nuanced memories.
 - Fact evolution keeps history: a conflicting same-key memory supersedes the old
   active memory instead of deleting it.
+- Slot canonicalization is the conflict boundary: `key` preserves the extracted
+  shape, while `slot` decides reinforcement, supersession, advisory locks, and
+  active uniqueness.
 - Recall is hybrid: pgvector handles semantic similarity, Postgres FTS handles
   exact words/entities, then RRF-style scoring merges both lists.
 
@@ -125,4 +131,11 @@ Postgres FTS.
 pip install -e ".[dev]"
 pytest
 ruff check .
+alembic upgrade head --sql
+```
+
+Docker persistence coverage is opt-in because it requires Docker daemon access:
+
+```bash
+RUN_DOCKER_TESTS=1 pytest tests/integration -q
 ```

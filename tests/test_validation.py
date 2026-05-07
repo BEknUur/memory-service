@@ -15,17 +15,22 @@ from memory_service.services.memory_extraction import (
     MemoryCandidate,
     RuleBasedMemoryExtractor,
 )
+from memory_service.services.memory_slots import canonical_slot
 from memory_service.services.recall import RecallService
 from memory_service.services.search import SearchService
 from memory_service.services.turns import TurnService
 
 
 class FakeScalarResult:
-    def __init__(self, item) -> None:
+    def __init__(self, item=None, items=None) -> None:
         self.item = item
+        self.items = items or []
 
     def first(self):
         return self.item
+
+    def all(self):
+        return self.items
 
 
 class FakeExecuteResult:
@@ -34,7 +39,7 @@ class FakeExecuteResult:
         self.scalar_items = scalar_items
 
     def scalars(self) -> FakeScalarResult:
-        return FakeScalarResult(self.item)
+        return FakeScalarResult(self.item, self.scalar_items)
 
     def all(self):
         return self.scalar_items or []
@@ -46,12 +51,14 @@ class FakeSession:
         self.committed = False
         self.existing_memory = existing_memory
         self.executed = []
+        self.execute_params = []
 
     def add(self, item) -> None:
         self.added.append(item)
 
     async def execute(self, statement, params=None):
         self.executed.append(statement)
+        self.execute_params.append(params)
         if "pg_advisory_xact_lock" in str(statement):
             return FakeExecuteResult()
         return FakeExecuteResult(self.existing_memory)
@@ -148,6 +155,29 @@ def test_core_models_are_registered():
     assert Turn.__tablename__ == "turns"
     assert Memory.__tablename__ == "memories"
     assert MemoryEvidence.__tablename__ == "memory_evidence"
+    assert "slot" in Memory.__table__.columns
+
+
+def test_canonical_slot_normalizes_known_aliases():
+    assert canonical_slot("employment.company") == "employment.current_company"
+    assert canonical_slot("job.company") == "employment.current_company"
+    assert canonical_slot("location.city") == "location.current_city"
+    assert canonical_slot("home.city") == "location.current_city"
+    assert canonical_slot("pet.dog") == "pet.dog.name"
+    assert canonical_slot("opinion.typescript") == "opinion.typescript"
+
+
+def test_memory_model_unique_indexes_use_slot():
+    indexes = {index.name: index for index in Memory.__table__.indexes}
+
+    assert {column.name for column in indexes["uq_memories_active_user_key"].columns} == {
+        "user_id",
+        "slot",
+    }
+    assert {column.name for column in indexes["uq_memories_active_session_key"].columns} == {
+        "session_id",
+        "slot",
+    }
 
 
 async def test_turn_service_prepares_raw_turn_for_persistence():
@@ -303,6 +333,10 @@ async def test_turn_service_creates_memories_and_evidence_from_rule_based_extrac
         "location.current_city",
         "location.previous_city",
     }
+    assert {memory.slot for memory in memories} == {
+        "location.current_city",
+        "location.previous_city",
+    }
     assert all(row.turn_id == fake_session.added[0].id for row in evidence)
     assert all(row.quote for row in evidence)
 
@@ -340,6 +374,7 @@ async def test_turn_service_reinforces_existing_same_key_same_value_memory():
         session_id="session-1",
         type="fact",
         key="employment.current_company",
+        slot="employment.current_company",
         value="Notion",
         confidence=0.9,
         confirmation_count=1,
@@ -381,6 +416,7 @@ async def test_turn_service_supersedes_existing_same_key_different_value_memory(
         session_id="session-1",
         type="fact",
         key="employment.current_company",
+        slot="employment.current_company",
         value="Stripe",
         confidence=0.9,
         confirmation_count=1,
@@ -410,6 +446,7 @@ async def test_turn_service_supersedes_existing_same_key_different_value_memory(
     assert existing_memory.superseded_by_id == new_memory.id
     assert new_memory.active is True
     assert new_memory.key == "employment.current_company"
+    assert new_memory.slot == "employment.current_company"
     assert new_memory.value == "Notion"
     assert new_memory.supersedes_id == existing_memory.id
     assert len(evidence) == 1
@@ -438,6 +475,210 @@ async def test_turn_service_uses_advisory_lock_for_memory_slot():
     assert any("pg_advisory_xact_lock" in str(statement) for statement in fake_session.executed)
 
 
+async def test_turn_service_uses_canonical_slot_for_llm_key_alias():
+    from memory_service.schemas.turns import TurnCreate, TurnMessage
+
+    existing_memory = Memory(
+        id=uuid4(),
+        user_id="user-1",
+        session_id="session-1",
+        type="fact",
+        key="employment.current_company",
+        slot="employment.current_company",
+        value="Stripe",
+        confidence=0.9,
+        confirmation_count=1,
+        active=True,
+    )
+    candidate = MemoryCandidate(
+        type="fact",
+        key="employment.company",
+        value="Notion",
+        confidence=0.91,
+        evidence_quote="I joined Notion",
+    )
+    fake_session = FakeSession(existing_memory=existing_memory)
+    service = TurnService(
+        fake_session,
+        extractor=CombinedMemoryExtractor(
+            rule_based_extractor=FakeRuleExtractor([]),
+            llm_extractor=FakeLLMExtractor([candidate]),
+        ),
+        embedding_service=no_embedding_service(),
+    )
+    payload = TurnCreate(
+        session_id="session-2",
+        user_id="user-1",
+        messages=[TurnMessage(role="user", content="I joined Notion.")],
+        timestamp=datetime(2025, 3, 18, 10, 30, tzinfo=UTC),
+        metadata={},
+    )
+
+    await service.create_turn(payload)
+
+    new_memory = [item for item in fake_session.added if isinstance(item, Memory)][0]
+
+    assert existing_memory.active is False
+    assert new_memory.key == "employment.company"
+    assert new_memory.slot == "employment.current_company"
+    assert new_memory.supersedes_id == existing_memory.id
+
+
+async def test_turn_service_reinforces_same_slot_same_value_from_alias():
+    from memory_service.schemas.turns import TurnCreate, TurnMessage
+
+    existing_memory = Memory(
+        id=uuid4(),
+        user_id="user-1",
+        session_id="session-1",
+        type="fact",
+        key="employment.current_company",
+        slot="employment.current_company",
+        value="Notion",
+        confidence=0.9,
+        confirmation_count=1,
+        active=True,
+    )
+    candidate = MemoryCandidate(
+        type="fact",
+        key="job.company",
+        value="Notion",
+        confidence=0.87,
+        evidence_quote="I work at Notion",
+    )
+    fake_session = FakeSession(existing_memory=existing_memory)
+    service = TurnService(
+        fake_session,
+        extractor=CombinedMemoryExtractor(
+            rule_based_extractor=FakeRuleExtractor([]),
+            llm_extractor=FakeLLMExtractor([candidate]),
+        ),
+        embedding_service=no_embedding_service(),
+    )
+    payload = TurnCreate(
+        session_id="session-2",
+        user_id="user-1",
+        messages=[TurnMessage(role="user", content="I work at Notion.")],
+        timestamp=datetime(2025, 3, 18, 10, 30, tzinfo=UTC),
+        metadata={},
+    )
+
+    await service.create_turn(payload)
+
+    new_memories = [item for item in fake_session.added if isinstance(item, Memory)]
+
+    assert new_memories == []
+    assert existing_memory.confirmation_count == 2
+    assert existing_memory.active is True
+
+
+async def test_turn_service_keeps_unknown_key_as_slot():
+    from memory_service.schemas.turns import TurnCreate, TurnMessage
+
+    candidate = MemoryCandidate(
+        type="opinion",
+        key="opinion.typescript",
+        value="prefers Python for scripts",
+        confidence=0.81,
+        evidence_quote="I would use Python for scripts",
+    )
+    fake_session = FakeSession()
+    service = TurnService(
+        fake_session,
+        extractor=CombinedMemoryExtractor(
+            rule_based_extractor=FakeRuleExtractor([]),
+            llm_extractor=FakeLLMExtractor([candidate]),
+        ),
+        embedding_service=no_embedding_service(),
+    )
+    payload = TurnCreate(
+        session_id="session-1",
+        user_id="user-1",
+        messages=[TurnMessage(role="user", content="I would use Python for scripts.")],
+        timestamp=datetime(2025, 3, 18, 10, 30, tzinfo=UTC),
+        metadata={},
+    )
+
+    await service.create_turn(payload)
+
+    memory = [item for item in fake_session.added if isinstance(item, Memory)][0]
+
+    assert memory.key == "opinion.typescript"
+    assert memory.slot == "opinion.typescript"
+
+
+async def test_turn_service_advisory_lock_uses_canonical_slot():
+    from memory_service.schemas.turns import TurnCreate, TurnMessage
+
+    candidate = MemoryCandidate(
+        type="fact",
+        key="job.company",
+        value="Notion",
+        confidence=0.9,
+        evidence_quote="I work at Notion",
+    )
+    fake_session = FakeSession()
+    service = TurnService(
+        fake_session,
+        extractor=CombinedMemoryExtractor(
+            rule_based_extractor=FakeRuleExtractor([]),
+            llm_extractor=FakeLLMExtractor([candidate]),
+        ),
+        embedding_service=no_embedding_service(),
+    )
+    payload = TurnCreate(
+        session_id="session-1",
+        user_id="user-1",
+        messages=[TurnMessage(role="user", content="I work at Notion.")],
+        timestamp=datetime(2025, 3, 16, 10, 30, tzinfo=UTC),
+        metadata={},
+    )
+
+    await service.create_turn(payload)
+
+    expected_lock = service._advisory_lock_key("user:user-1:employment.current_company")
+    assert {"lock_key": expected_lock} in fake_session.execute_params
+
+
+async def test_recall_scope_for_user_allows_same_user_or_current_session():
+    memory = Memory(
+        id=uuid4(),
+        user_id="user-1",
+        session_id="older-session",
+        type="fact",
+        key="location.current_city",
+        slot="location.current_city",
+        value="Berlin",
+        confidence=0.9,
+        confirmation_count=1,
+        active=True,
+        created_at=datetime(2025, 3, 15, 10, 30, tzinfo=UTC),
+        updated_at=datetime(2025, 3, 15, 10, 30, tzinfo=UTC),
+    )
+    session = FakeRecallSession(rows_by_call=[[(memory, uuid4(), "I moved to Berlin", 0.7)]])
+    service = RecallService(session, embedding_service=FakeEmbeddingService(None))
+
+    await service.recall(
+        RecallRequest(query="Where does user live?", session_id="new-session", user_id="user-1")
+    )
+
+    statement = str(session.executed[0])
+    assert "memories.user_id = :user_id_1 OR memories.session_id = :session_id_1" in statement
+
+
+async def test_recall_scope_without_user_is_session_only():
+    session = FakeRecallSession(rows_by_call=[[]])
+    service = RecallService(session, embedding_service=FakeEmbeddingService(None))
+
+    await service.recall(
+        RecallRequest(query="Where does user live?", session_id="session-1", user_id=None)
+    )
+
+    statement = str(session.executed[0])
+    assert "memories.user_id IS NULL" in statement
+    assert "memories.session_id = :session_id_1" in statement
+
+
 async def test_recall_returns_keyword_memory_context_and_citation():
     memory_id = uuid4()
     turn_id = uuid4()
@@ -447,6 +688,7 @@ async def test_recall_returns_keyword_memory_context_and_citation():
         session_id="session-1",
         type="fact",
         key="location.current_city",
+        slot="location.current_city",
         value="Berlin",
         confidence=0.92,
         confirmation_count=1,
@@ -471,6 +713,118 @@ async def test_recall_returns_keyword_memory_context_and_citation():
     assert response.citations[0].snippet == "I moved to Berlin"
 
 
+async def test_recall_context_includes_direct_superseded_history():
+    previous_memory_id = uuid4()
+    current_memory_id = uuid4()
+    turn_id = uuid4()
+    previous_memory = Memory(
+        id=previous_memory_id,
+        user_id="user-1",
+        session_id="session-1",
+        type="fact",
+        key="employment.current_company",
+        slot="employment.current_company",
+        value="Stripe",
+        confidence=0.9,
+        confirmation_count=1,
+        active=False,
+        created_at=datetime(2025, 3, 10, 10, 30, tzinfo=UTC),
+        updated_at=datetime(2025, 3, 10, 10, 30, tzinfo=UTC),
+    )
+    current_memory = Memory(
+        id=current_memory_id,
+        user_id="user-1",
+        session_id="session-3",
+        type="fact",
+        key="employment.current_company",
+        slot="employment.current_company",
+        value="Notion",
+        confidence=0.95,
+        confirmation_count=1,
+        active=True,
+        supersedes_id=previous_memory_id,
+        created_at=datetime(2025, 3, 18, 10, 30, tzinfo=UTC),
+        updated_at=datetime(2025, 3, 18, 10, 30, tzinfo=UTC),
+    )
+    session = FakeRecallSession(
+        rows_by_call=[
+            [(current_memory, turn_id, "I just joined Notion", 0.7)],
+            [previous_memory],
+        ]
+    )
+    service = RecallService(session, embedding_service=FakeEmbeddingService(None))
+
+    response = await service.recall(
+        RecallRequest(
+            query="Where does the user work?",
+            session_id="session-4",
+            user_id="user-1",
+            max_tokens=512,
+        )
+    )
+
+    assert "employment.current_company: Notion" in response.context
+    assert "previously Stripe" in response.context
+
+
+async def test_recall_context_dedupes_by_slot_not_raw_key():
+    first = Memory(
+        id=uuid4(),
+        user_id="user-1",
+        session_id="session-1",
+        type="fact",
+        key="employment.company",
+        slot="employment.current_company",
+        value="Notion",
+        confidence=0.9,
+        confirmation_count=1,
+        active=True,
+        created_at=datetime(2025, 3, 18, 10, 30, tzinfo=UTC),
+        updated_at=datetime(2025, 3, 18, 10, 30, tzinfo=UTC),
+    )
+    duplicate_slot = Memory(
+        id=uuid4(),
+        user_id="user-1",
+        session_id="session-1",
+        type="fact",
+        key="job.company",
+        slot="employment.current_company",
+        value="Notion",
+        confidence=0.8,
+        confirmation_count=1,
+        active=True,
+        created_at=datetime(2025, 3, 17, 10, 30, tzinfo=UTC),
+        updated_at=datetime(2025, 3, 17, 10, 30, tzinfo=UTC),
+    )
+    session = FakeRecallSession(
+        rows_by_call=[
+            [
+                (first, uuid4(), "I joined Notion", 0.7),
+                (duplicate_slot, uuid4(), "I work at Notion", 0.6),
+            ]
+        ]
+    )
+    service = RecallService(session, embedding_service=FakeEmbeddingService(None))
+
+    response = await service.recall(
+        RecallRequest(query="Where does user work?", session_id="session-1", user_id="user-1")
+    )
+
+    assert response.context.count("Notion") == 1
+
+
+async def test_keyword_recall_query_indexes_memory_slot_text():
+    session = FakeRecallSession(rows_by_call=[[]])
+    service = RecallService(session, embedding_service=FakeEmbeddingService(None))
+
+    await service.recall(
+        RecallRequest(query="Where does user work?", session_id="session-1", user_id="user-1")
+    )
+
+    statement = str(session.executed[0])
+    assert "memories.slot" in statement
+
+
 async def test_recall_returns_empty_context_when_no_candidates_match():
     session = FakeRecallSession(rows_by_call=[[], []])
     service = RecallService(session, embedding_service=FakeEmbeddingService(None))
@@ -490,6 +844,7 @@ async def test_search_returns_structured_results_from_hybrid_retrieval():
         session_id="session-1",
         type="fact",
         key="pet.dog.name",
+        slot="pet.dog.name",
         value="Biscuit",
         confidence=0.86,
         confirmation_count=1,
