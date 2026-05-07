@@ -61,6 +61,10 @@ class TurnService:
             self._reinforce_memory(existing_memory, candidate, payload)
             memory = existing_memory
         else:
+            if existing_memory is not None:
+                existing_memory.active = False
+                await self.session.flush()
+
             memory = Memory(
                 id=uuid4(),
                 user_id=payload.user_id,
@@ -76,9 +80,9 @@ class TurnService:
                 last_confirmed_at=payload.timestamp,
             )
             self.session.add(memory)
+            await self.session.flush()
 
             if existing_memory is not None:
-                existing_memory.active = False
                 existing_memory.superseded_by_id = memory.id
 
         embedding = await self.embedding_service.embed(

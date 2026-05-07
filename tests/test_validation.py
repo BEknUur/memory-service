@@ -52,6 +52,9 @@ class FakeSession:
         self.existing_memory = existing_memory
         self.executed = []
         self.execute_params = []
+        self.flush_count = 0
+        self.flushed_memory_ids = []
+        self.flush_snapshots = []
 
     def add(self, item) -> None:
         self.added.append(item)
@@ -64,6 +67,19 @@ class FakeSession:
         return FakeExecuteResult(self.existing_memory)
 
     async def flush(self) -> None:
+        self.flush_count += 1
+        self.flush_snapshots.append(
+            [
+                (item.id, item.active)
+                for item in self.added
+                if isinstance(item, Memory)
+            ]
+        )
+        self.flushed_memory_ids.extend(
+            item.id
+            for item in self.added
+            if isinstance(item, Memory) and item.id not in self.flushed_memory_ids
+        )
         return None
 
     async def commit(self) -> None:
@@ -449,8 +465,105 @@ async def test_turn_service_supersedes_existing_same_key_different_value_memory(
     assert new_memory.slot == "employment.current_company"
     assert new_memory.value == "Notion"
     assert new_memory.supersedes_id == existing_memory.id
+    assert new_memory.id in fake_session.flushed_memory_ids
     assert len(evidence) == 1
     assert evidence[0].memory_id == new_memory.id
+
+
+async def test_turn_service_flushes_new_memory_before_superseded_by_fk_update():
+    from memory_service.schemas.turns import TurnCreate, TurnMessage
+
+    class TrackingMemory(Memory):
+        update_events = []
+
+        def __setattr__(self, name, value):
+            if name == "superseded_by_id":
+                self.update_events.append(("superseded_by_id", value))
+            super().__setattr__(name, value)
+
+    existing_memory = TrackingMemory(
+        id=uuid4(),
+        user_id="user-1",
+        session_id="session-1",
+        type="fact",
+        key="employment.current_company",
+        slot="employment.current_company",
+        value="Stripe",
+        confidence=0.9,
+        confirmation_count=1,
+        active=True,
+    )
+    fake_session = FakeSession(existing_memory=existing_memory)
+    service = TurnService(
+        fake_session,
+        extractor=no_llm_extractor(),
+        embedding_service=no_embedding_service(),
+    )
+    payload = TurnCreate(
+        session_id="session-3",
+        user_id="user-1",
+        messages=[TurnMessage(role="user", content="I just joined Notion.")],
+        timestamp=datetime(2025, 3, 18, 10, 30, tzinfo=UTC),
+        metadata={},
+    )
+
+    await service.create_turn(payload)
+
+    new_memory = [item for item in fake_session.added if isinstance(item, Memory)][0]
+
+    assert new_memory.id in fake_session.flushed_memory_ids
+    assert existing_memory.update_events == [("superseded_by_id", new_memory.id)]
+
+
+async def test_turn_service_deactivates_existing_memory_before_inserting_replacement():
+    from memory_service.schemas.turns import TurnCreate, TurnMessage
+
+    class ConstraintCheckingSession(FakeSession):
+        async def flush(self) -> None:
+            active_replacements = [
+                item
+                for item in self.added
+                if isinstance(item, Memory)
+                and item.slot == "employment.current_company"
+                and item.active
+            ]
+            if active_replacements and self.existing_memory.active:
+                raise AssertionError("replacement inserted before existing active slot was freed")
+            await super().flush()
+
+    existing_memory = Memory(
+        id=uuid4(),
+        user_id="user-1",
+        session_id="session-1",
+        type="fact",
+        key="employment.current_company",
+        slot="employment.current_company",
+        value="Stripe",
+        confidence=0.9,
+        confirmation_count=1,
+        active=True,
+    )
+    fake_session = ConstraintCheckingSession(existing_memory=existing_memory)
+    service = TurnService(
+        fake_session,
+        extractor=no_llm_extractor(),
+        embedding_service=no_embedding_service(),
+    )
+    payload = TurnCreate(
+        session_id="session-3",
+        user_id="user-1",
+        messages=[TurnMessage(role="user", content="I just joined Notion.")],
+        timestamp=datetime(2025, 3, 18, 10, 30, tzinfo=UTC),
+        metadata={},
+    )
+
+    await service.create_turn(payload)
+
+    new_memory = [item for item in fake_session.added if isinstance(item, Memory)][0]
+
+    assert existing_memory.active is False
+    assert existing_memory.superseded_by_id == new_memory.id
+    assert new_memory.active is True
 
 
 async def test_turn_service_uses_advisory_lock_for_memory_slot():
